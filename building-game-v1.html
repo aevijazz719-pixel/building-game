@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>building game v1</title>
+<title>Building Game v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@300;400;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{overflow:hidden;font-family:'Source Sans 3', sans-serif;}
-#topbar{position:absolute;top:0;left:0;width:100%;height:36px;background:rgba(0,0,0,0.5);color:white;display:flex;align-items:center;justify-content:center;padding:0 15px;font-size:13px;z-index:1000;box-shadow:0 2px 5px rgba(0,0,0,0.3);}
+#topbar{position:absolute;top:0;left:0;width:100%;height:36px;background:rgba(0,0,0,0.7);color:white;display:flex;align-items:center;justify-content:center;padding:0 15px;font-size:13px;z-index:1000;box-shadow:0 2px 5px rgba(0,0,0,0.3);}
 #topbar-left{display:flex;gap:20px;}
 #canvas-container{width:100vw;height:100vh;margin-top:-36px;padding-top:36px;}
 #crosshair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;}
@@ -243,6 +243,38 @@ document.addEventListener('mousemove', e=>{
     cameraPitch -= e.movementY*0.002;
     cameraPitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,cameraPitch));
   }
+});
+
+// Touch controls for camera
+let lastTouchX = 0, lastTouchY = 0;
+let isCameraDragging = false;
+
+renderer.domElement.addEventListener('touchstart', e=>{
+  if(e.touches.length === 1){
+    lastTouchX = e.touches[0].clientX;
+    lastTouchY = e.touches[0].clientY;
+    isCameraDragging = true;
+  }
+});
+
+renderer.domElement.addEventListener('touchmove', e=>{
+  if(isCameraDragging && e.touches.length === 1){
+    e.preventDefault();
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - lastTouchX;
+    const deltaY = touch.clientY - lastTouchY;
+    
+    cameraYaw -= deltaX * 0.005;
+    cameraPitch -= deltaY * 0.005;
+    cameraPitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, cameraPitch));
+    
+    lastTouchX = touch.clientX;
+    lastTouchY = touch.clientY;
+  }
+}, {passive: false});
+
+renderer.domElement.addEventListener('touchend', ()=>{
+  isCameraDragging = false;
 });
 
 // Mouse clicks
