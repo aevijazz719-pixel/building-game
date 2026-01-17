@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>building game v1</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{overflow:hidden;font-family:'Source Sans 3', sans-serif;}
+#topbar{position:absolute;top:0;left:0;width:100%;height:36px;background:rgba(0,0,0,0.5);color:white;display:flex;align-items:center;justify-content:center;padding:0 15px;font-size:13px;z-index:1000;box-shadow:0 2px 5px rgba(0,0,0,0.3);}
+#topbar-left{display:flex;gap:20px;}
+#canvas-container{width:100vw;height:100vh;margin-top:-36px;padding-top:36px;}
+#crosshair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;}
+#crosshair::before,#crosshair::after{content:'';position:absolute;background:white;}
+#crosshair::before{width:20px;height:2px; left:-10px; top:-1px;}
+#crosshair::after{width:2px;height:20px; left:-1px; top:-10px;}
+#color-palette{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:8px;flex-direction:row;background:rgba(0,0,0,0.7);padding:10px 15px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.5);}
+.color-box{width:45px;height:45px;border:3px solid rgba(255,255,255,0.5);cursor:pointer;box-shadow:1px 1px 3px rgba(0,0,0,0.5);border-radius:4px;transition:all 0.2s;}
+.color-box:hover{border-color:rgba(255,255,255,0.8);transform:translateY(-2px);}
+.color-box.selected{border-color:yellow;box-shadow:0 0 15px rgba(255,255,0,0.8);transform:scale(1.1);}
+#mobile-controls{position:absolute;bottom:20px;right:20px;display:flex;flex-direction:column;gap:10px;z-index:100;}
+.mobile-btn{width:70px;height:70px;border:none;border-radius:50%;font-size:14px;font-weight:bold;color:white;cursor:pointer;box-shadow:0 4px 10px rgba(0,0,0,0.4);touch-action:none;user-select:none;}
+#jump-btn{background:#4CAF50;}
+#break-btn{background:#F44336;}
+#place-btn{background:#2196F3;}
+.mobile-btn:active{transform:scale(0.95);box-shadow:0 2px 5px rgba(0,0,0,0.4);}
+#joystick-container{position:absolute;bottom:20px;left:20px;width:150px;height:150px;z-index:100;}
+#joystick-base{width:150px;height:150px;background:rgba(0,0,0,0.5);border-radius:50%;position:relative;box-shadow:0 4px 10px rgba(0,0,0,0.4);}
+#joystick-stick{width:60px;height:60px;background:rgba(255,255,255,0.8);border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 2px 5px rgba(0,0,0,0.5);touch-action:none;}
+</style>
+</head>
+<body>
+<div id="topbar">
+  <div id="topbar-left">
+    <span>WASD: Move | Mouse: Look | SPACE: Jump</span>
+    <span>LEFT CLICK: Break | RIGHT CLICK: Place</span>
+    <span>1-8: Select | M: Toggle mouse | R: Reset</span>
+  </div>
+</div>
+<div id="canvas-container"></div>
+<div id="crosshair"></div>
+<div id="joystick-container">
+  <div id="joystick-base">
+    <div id="joystick-stick"></div>
+  </div>
+</div>
+<div id="color-palette"></div>
+<div id="mobile-controls">
+  <button id="jump-btn" class="mobile-btn">JUMP</button>
+  <button id="break-btn" class="mobile-btn">BREAK</button>
+  <button id="place-btn" class="mobile-btn">PLACE</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script>
+<script>
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87CEEB);
+
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+// Lights
+const ambientLight = new THREE.AmbientLight(0xffffff,0.6); scene.add(ambientLight);
+const directionalLight = new THREE.DirectionalLight(0xffffff,0.8);
+directionalLight.position.set(50,100,50); directionalLight.castShadow=true; scene.add(directionalLight);
+
+// FPS Stats
+let stats;
+window.addEventListener('load', ()=>{
+  stats = new Stats(); stats.showPanel(0); document.body.appendChild(stats.dom);
+});
+
+// Blocks
+const blockColors = [0xff0000,0x00ff00,0x0000ff,0xffff00,0xff00ff,0x00ffff,0x8B4513,0xC8C8C8];
+let selectedColor = 0;
+const blocks = [];
+const blockSize = 2;
+
+// Color palette
+const colorPalette = document.getElementById('color-palette');
+blockColors.forEach((color,index)=>{
+  const box = document.createElement('div');
+  box.className='color-box'+(index===0?' selected':'');
+  box.style.background='#'+color.toString(16).padStart(6,'0');
+  box.onclick=()=>{ selectColor(index); }
+  colorPalette.appendChild(box);
+});
+function selectColor(index){
+  selectedColor=index;
+  document.querySelectorAll('.color-box').forEach((b,i)=>b.classList.toggle('selected',i===index));
+}
+
+// Player
+const player = { position:new THREE.Vector3(0,10,20), velocity:new THREE.Vector3(0,0,0), rotation:new THREE.Euler(0,0,0,"YXZ"), height:4, width:2, onGround:false };
+
+// Camera rotation
+let cameraPitch=0, cameraYaw=0;
+
+// Movement
+const keys={}; const moveSpeed=0.3, jumpPower=0.8, gravity=0.04;
+let moveForward=0, moveRight=0, jumpPressed=false;
+let mouseLocked=false;
+
+// Create world with full grid
+function createWorld(){
+  for(let x=-50;x<=50;x+=blockSize){
+    for(let z=-50;z<=50;z+=blockSize){
+      createBlock(x,0,z,0x228B22);
+    }
+  }
+}
+
+function createBlock(x,y,z,color){
+  const geom=new THREE.BoxGeometry(blockSize,blockSize,blockSize);
+  const mat=new THREE.MeshStandardMaterial({color:color});
+  const mesh=new THREE.Mesh(geom,mat);
+  mesh.position.set(x,y,z); mesh.castShadow=true; mesh.receiveShadow=true;
+  scene.add(mesh); blocks.push(mesh);
+}
+
+// Raycasting & highlight
+const raycaster=new THREE.Raycaster();
+let highlightedBlock=null;
+const highlightMaterial=new THREE.MeshBasicMaterial({color:0xffff00,transparent:true,opacity:0.3,side:THREE.DoubleSide});
+let highlightBox=null;
+
+function getTargetBlock(){
+  const dir=new THREE.Vector3(0,0,-1); dir.applyEuler(camera.rotation);
+  raycaster.set(camera.position,dir);
+  const intersects=raycaster.intersectObjects(blocks);
+  return intersects.length>0?intersects[0]:null;
+}
+
+function highlightBlock(){
+  if(highlightBox){scene.remove(highlightBox);highlightBox=null;}
+  const target=getTargetBlock();
+  if(target && target.distance<20){
+    const geometry=new THREE.BoxGeometry(blockSize+0.1,blockSize+0.1,blockSize+0.1);
+    highlightBox=new THREE.Mesh(geometry,highlightMaterial);
+    highlightBox.position.copy(target.object.position);
+    scene.add(highlightBox);
+    highlightedBlock=target.object;
+  }else highlightedBlock=null;
+}
+
+function breakBlock(){
+  if(highlightedBlock){
+    scene.remove(highlightedBlock);
+    const idx=blocks.indexOf(highlightedBlock);
+    if(idx>-1) blocks.splice(idx,1);
+    highlightedBlock=null;
+    if(highlightBox){scene.remove(highlightBox);highlightBox=null;}
+  }
+}
+
+function placeBlock(){
+  const target=getTargetBlock();
+  if(target && target.distance<20){
+    const normal=target.face.normal;
+    const newPos=target.object.position.clone().add(normal.multiplyScalar(blockSize));
+    newPos.x=Math.round(newPos.x/blockSize)*blockSize;
+    newPos.y=Math.round(newPos.y/blockSize)*blockSize;
+    newPos.z=Math.round(newPos.z/blockSize)*blockSize;
+    if(!blocks.some(b=>b.position.distanceTo(newPos)<0.1)){
+      createBlock(newPos.x,newPos.y,newPos.z,blockColors[selectedColor]);
+    }
+  }
+}
+
+// Collision
+function checkCollision(pos){
+  for(let b of blocks){
+    const dx=Math.abs(pos.x-b.position.x);
+    const dy=Math.abs(pos.y-b.position.y);
+    const dz=Math.abs(pos.z-b.position.z);
+    if(dx<(blockSize+player.width)/2 && dy<(blockSize+player.height)/2 && dz<(blockSize+player.width)/2) return b;
+  }
+  return null;
+}
+
+// Update player
+function updatePlayer(){
+  const moveVec=new THREE.Vector3();
+  if(!jumpPressed && !moveForward && !moveRight){
+    if(keys['w']||keys['W']) moveVec.z-=1;
+    if(keys['s']||keys['S']) moveVec.z+=1;
+    if(keys['a']||keys['A']) moveVec.x-=1;
+    if(keys['d']||keys['D']) moveVec.x+=1;
+  }else{
+    moveVec.z -= moveForward;
+    moveVec.x += moveRight;
+  }
+
+  if(moveVec.length()>0){
+    moveVec.normalize();
+    moveVec.applyEuler(new THREE.Euler(0,cameraYaw,0));
+    moveVec.multiplyScalar(moveSpeed);
+    let newPos=player.position.clone().add(new THREE.Vector3(moveVec.x,0,0));
+    if(!checkCollision(newPos)) player.position.x=newPos.x;
+    newPos=player.position.clone().add(new THREE.Vector3(0,0,moveVec.z));
+    if(!checkCollision(newPos)) player.position.z=newPos.z;
+  }
+
+  // Gravity
+  player.velocity.y -= gravity;
+  player.position.y += player.velocity.y;
+
+  // Ground collision
+  player.onGround=false;
+  for(let b of blocks){
+    const dx=Math.abs(player.position.x-b.position.x);
+    const dz=Math.abs(player.position.z-b.position.z);
+    const dy=player.position.y-b.position.y;
+    if(dx<(blockSize+player.width)/2 && dz<(blockSize+player.width)/2 && dy>0 && dy<blockSize/2+player.height/2+1 && player.velocity.y<0){
+      player.position.y=b.position.y+blockSize/2+player.height/2;
+      player.velocity.y=0;
+      player.onGround=true;
+    }
+  }
+
+  // Jump
+  if((keys[' '] || jumpPressed) && player.onGround){
+    player.velocity.y=jumpPower;
+    player.onGround=false;
+  }
+
+  // Camera update
+  camera.position.set(player.position.x,player.position.y+player.height*0.75,player.position.z);
+  camera.rotation.set(cameraPitch,cameraYaw,0,"YXZ");
+}
+
+// Mouse lock
+function lockMouse(){ renderer.domElement.requestPointerLock(); }
+document.addEventListener('pointerlockchange',()=>{ mouseLocked=document.pointerLockElement===renderer.domElement; });
+document.addEventListener('mousemove', e=>{
+  if(mouseLocked){
+    cameraYaw -= e.movementX*0.002;
+    cameraPitch -= e.movementY*0.002;
+    cameraPitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,cameraPitch));
+  }
+});
+
+// Mouse clicks
+renderer.domElement.addEventListener('mousedown',e=>{
+  if(mouseLocked){ if(e.button===0) breakBlock(); if(e.button===2) placeBlock(); }
+});
+renderer.domElement.addEventListener('contextmenu', e=> e.preventDefault());
+
+// Keyboard
+document.addEventListener('keydown', e=>{
+  keys[e.key]=true;
+  if(e.key>='1'&&e.key<='8') selectColor(parseInt(e.key)-1);
+  if(e.key==='m'||e.key==='M'){ e.preventDefault(); if(mouseLocked) document.exitPointerLock(); else lockMouse(); }
+  if(e.key==='r'||e.key==='R'){ e.preventDefault(); resetGame(); }
+});
+document.addEventListener('keyup', e=>{ keys[e.key]=false; });
+
+// Mobile controls
+document.getElementById('jump-btn').addEventListener('touchstart', e=>{ e.preventDefault(); jumpPressed=true; });
+document.getElementById('jump-btn').addEventListener('touchend', e=>{ e.preventDefault(); jumpPressed=false; });
+document.getElementById('break-btn').addEventListener('touchstart', e=>{ e.preventDefault(); breakBlock(); });
+document.getElementById('place-btn').addEventListener('touchstart', e=>{ e.preventDefault(); placeBlock(); });
+
+// Joystick controls
+const joystickBase = document.getElementById('joystick-base');
+const joystickStick = document.getElementById('joystick-stick');
+let joystickActive = false;
+let joystickStartPos = {x:0, y:0};
+
+function handleJoystickStart(e){
+  e.preventDefault();
+  joystickActive = true;
+  const touch = e.touches ? e.touches[0] : e;
+  const rect = joystickBase.getBoundingClientRect();
+  joystickStartPos = {x: rect.left + rect.width/2, y: rect.top + rect.height/2};
+}
+
+function handleJoystickMove(e){
+  if(!joystickActive) return;
+  e.preventDefault();
+  const touch = e.touches ? e.touches[0] : e;
+  const deltaX = touch.clientX - joystickStartPos.x;
+  const deltaY = touch.clientY - joystickStartPos.y;
+  const distance = Math.min(45, Math.sqrt(deltaX*deltaX + deltaY*deltaY));
+  const angle = Math.atan2(deltaY, deltaX);
+  
+  const stickX = distance * Math.cos(angle);
+  const stickY = distance * Math.sin(angle);
+  
+  joystickStick.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
+  
+  // Update movement
+  moveForward = -stickY / 45;
+  moveRight = stickX / 45;
+}
+
+function handleJoystickEnd(e){
+  e.preventDefault();
+  joystickActive = false;
+  joystickStick.style.transform = 'translate(-50%, -50%)';
+  moveForward = 0;
+  moveRight = 0;
+}
+
+joystickBase.addEventListener('touchstart', handleJoystickStart);
+joystickBase.addEventListener('mousedown', handleJoystickStart);
+document.addEventListener('touchmove', handleJoystickMove);
+document.addEventListener('mousemove', handleJoystickMove);
+document.addEventListener('touchend', handleJoystickEnd);
+document.addEventListener('mouseup', handleJoystickEnd);
+
+// Reset
+function resetGame(){
+  blocks.forEach(b=>scene.remove(b)); blocks.length=0;
+  player.position.set(0,10,20); player.velocity.set(0,0,0);
+  cameraPitch=0; cameraYaw=0;
+  createWorld();
+  if(highlightBox){scene.remove(highlightBox); highlightBox=null;} highlightedBlock=null;
+}
+
+// World
+createWorld();
+
+// Animate
+function animate(){
+  if(stats) stats.begin();
+  requestAnimationFrame(animate);
+  updatePlayer();
+  highlightBlock();
+  renderer.render(scene,camera);
+  if(stats) stats.end();
+}
+animate();
+
+// Resize
+window.addEventListener('resize', ()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
