@@ -88,6 +88,7 @@ blockColors.forEach((color,index)=>{
   box.className='color-box'+(index===0?' selected':'');
   box.style.background='#'+color.toString(16).padStart(6,'0');
   box.onclick=()=>{ selectColor(index); }
+  box.ontouchstart=(e)=>{ e.preventDefault(); selectColor(index); }
   colorPalette.appendChild(box);
 });
 function selectColor(index){
@@ -246,35 +247,55 @@ document.addEventListener('mousemove', e=>{
 });
 
 // Touch controls for camera
-let lastTouchX = 0, lastTouchY = 0;
-let isCameraDragging = false;
+let touchIds = new Map();
 
 renderer.domElement.addEventListener('touchstart', e=>{
-  if(e.touches.length === 1){
-    lastTouchX = e.touches[0].clientX;
-    lastTouchY = e.touches[0].clientY;
-    isCameraDragging = true;
+  for(let i = 0; i < e.changedTouches.length; i++){
+    const touch = e.changedTouches[i];
+    const rect = renderer.domElement.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    
+    // Right side of screen = camera control
+    if(x > rect.width / 2){
+      touchIds.set(touch.identifier, {
+        type: 'camera',
+        lastX: touch.clientX,
+        lastY: touch.clientY
+      });
+    }
   }
 });
 
 renderer.domElement.addEventListener('touchmove', e=>{
-  if(isCameraDragging && e.touches.length === 1){
-    e.preventDefault();
-    const touch = e.touches[0];
-    const deltaX = touch.clientX - lastTouchX;
-    const deltaY = touch.clientY - lastTouchY;
+  e.preventDefault();
+  for(let i = 0; i < e.changedTouches.length; i++){
+    const touch = e.changedTouches[i];
+    const touchData = touchIds.get(touch.identifier);
     
-    cameraYaw -= deltaX * 0.005;
-    cameraPitch -= deltaY * 0.005;
-    cameraPitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, cameraPitch));
-    
-    lastTouchX = touch.clientX;
-    lastTouchY = touch.clientY;
+    if(touchData && touchData.type === 'camera'){
+      const deltaX = touch.clientX - touchData.lastX;
+      const deltaY = touch.clientY - touchData.lastY;
+      
+      cameraYaw -= deltaX * 0.005;
+      cameraPitch -= deltaY * 0.005;
+      cameraPitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, cameraPitch));
+      
+      touchData.lastX = touch.clientX;
+      touchData.lastY = touch.clientY;
+    }
   }
 }, {passive: false});
 
-renderer.domElement.addEventListener('touchend', ()=>{
-  isCameraDragging = false;
+renderer.domElement.addEventListener('touchend', e=>{
+  for(let i = 0; i < e.changedTouches.length; i++){
+    touchIds.delete(e.changedTouches[i].identifier);
+  }
+});
+
+renderer.domElement.addEventListener('touchcancel', e=>{
+  for(let i = 0; i < e.changedTouches.length; i++){
+    touchIds.delete(e.changedTouches[i].identifier);
+  }
 });
 
 // Mouse clicks
@@ -357,6 +378,20 @@ function resetGame(){
 
 // World
 createWorld();
+
+// Request fullscreen on mobile
+function requestFullscreen(){
+  const elem = document.documentElement;
+  if(elem.requestFullscreen) elem.requestFullscreen();
+  else if(elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+  else if(elem.msRequestFullscreen) elem.msRequestFullscreen();
+}
+
+// Detect mobile and go fullscreen
+if(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)){
+  document.addEventListener('touchstart', requestFullscreen, {once: true});
+}
+
 
 // Animate
 function animate(){
